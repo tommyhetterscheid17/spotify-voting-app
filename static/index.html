@@ -1,0 +1,1037 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Playlist Democracy</title>
+    <!-- Version 2.0 - Debug Build -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Inconsolata:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #FF006E;
+            --secondary: #FFBE0B;
+            --tertiary: #8338EC;
+            --dark: #0A0A0A;
+            --light: #F5F5F5;
+            --accent: #06FFA5;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inconsolata', monospace;
+            background: var(--dark);
+            color: var(--light);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* Animated background gradient */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: 
+                radial-gradient(circle at 20% 50%, rgba(255, 0, 110, 0.1) 0%, transparent 50%),
+                radial-gradient(circle at 80% 80%, rgba(131, 56, 236, 0.1) 0%, transparent 50%),
+                radial-gradient(circle at 40% 20%, rgba(255, 190, 11, 0.05) 0%, transparent 50%);
+            z-index: 0;
+            animation: bgShift 20s ease infinite;
+        }
+
+        @keyframes bgShift {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        .container {
+            position: relative;
+            z-index: 1;
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 4rem;
+            padding: 3rem 0;
+        }
+
+        h1 {
+            font-family: 'Archivo Black', sans-serif;
+            font-size: clamp(3rem, 10vw, 8rem);
+            line-height: 0.9;
+            letter-spacing: -0.03em;
+            background: linear-gradient(135deg, var(--primary), var(--secondary), var(--tertiary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 1rem;
+            text-transform: uppercase;
+            animation: slideDown 0.8s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+        }
+
+        @keyframes slideDown {
+            from {
+                opacity: 0;
+                transform: translateY(-100px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .subtitle {
+            font-size: 1.2rem;
+            color: var(--accent);
+            text-transform: uppercase;
+            letter-spacing: 0.3em;
+            font-weight: 700;
+            animation: fadeIn 1s ease 0.3s both;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .login-section {
+            text-align: center;
+            padding: 4rem 2rem;
+            animation: fadeIn 1.2s ease 0.6s both;
+        }
+
+        .btn {
+            display: inline-block;
+            padding: 1.5rem 3rem;
+            font-family: 'Archivo Black', sans-serif;
+            font-size: 1.2rem;
+            text-transform: uppercase;
+            text-decoration: none;
+            color: var(--dark);
+            background: var(--accent);
+            border: 4px solid var(--accent);
+            cursor: pointer;
+            transition: all 0.3s ease;
+            letter-spacing: 0.1em;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+            transition: left 0.5s;
+        }
+
+        .btn:hover::before {
+            left: 100%;
+        }
+
+        .btn:hover {
+            background: transparent;
+            color: var(--accent);
+            transform: scale(1.05);
+            box-shadow: 0 0 30px rgba(6, 255, 165, 0.5);
+        }
+
+        .playlist-selector {
+            margin-bottom: 3rem;
+            animation: fadeIn 1s ease 0.9s both;
+        }
+
+        .custom-select-wrapper {
+            position: relative;
+            width: 100%;
+        }
+
+        .playlist-search-input {
+            width: 100%;
+            padding: 1.5rem;
+            font-family: 'Inconsolata', monospace;
+            font-size: 1.1rem;
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--light);
+            border: 3px solid var(--primary);
+            cursor: text;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+        }
+
+        .playlist-search-input:focus {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: var(--accent);
+            outline: none;
+            box-shadow: 0 0 20px rgba(6, 255, 165, 0.3);
+        }
+
+        .playlist-search-input::placeholder {
+            color: rgba(255, 255, 255, 0.5);
+        }
+
+        .playlist-dropdown {
+            position: absolute;
+            top: calc(100% + 0.5rem);
+            left: 0;
+            right: 0;
+            max-height: 400px;
+            overflow-y: auto;
+            background: rgba(10, 10, 10, 0.98);
+            border: 3px solid var(--accent);
+            z-index: 1000;
+            backdrop-filter: blur(10px);
+        }
+
+        .playlist-dropdown::-webkit-scrollbar {
+            width: 12px;
+        }
+
+        .playlist-dropdown::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .playlist-dropdown::-webkit-scrollbar-thumb {
+            background: var(--primary);
+            border: 2px solid rgba(10, 10, 10, 0.98);
+        }
+
+        .playlist-dropdown::-webkit-scrollbar-thumb:hover {
+            background: var(--accent);
+        }
+
+        .playlist-item {
+            padding: 1rem 1.5rem;
+            font-family: 'Inconsolata', monospace;
+            font-size: 1rem;
+            color: var(--light);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .playlist-item:hover {
+            background: rgba(6, 255, 165, 0.1);
+            color: var(--accent);
+            padding-left: 2rem;
+        }
+
+        .playlist-item:active {
+            background: var(--accent);
+            color: var(--dark);
+        }
+
+        .playlist-item.selected {
+            background: var(--primary);
+            color: var(--light);
+            border-left: 5px solid var(--accent);
+        }
+
+        .no-results {
+            padding: 2rem;
+            text-align: center;
+            color: rgba(255, 255, 255, 0.5);
+            font-family: 'Inconsolata', monospace;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+        }
+
+        .tracks-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 2rem;
+            margin-top: 2rem;
+        }
+
+        .track-card {
+            background: rgba(255, 255, 255, 0.03);
+            border: 3px solid transparent;
+            padding: 1.5rem;
+            position: relative;
+            transition: all 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+            cursor: pointer;
+            overflow: hidden;
+            animation: slideUp 0.6s ease both;
+        }
+
+        .track-card:nth-child(1) { animation-delay: 0.1s; }
+        .track-card:nth-child(2) { animation-delay: 0.2s; }
+        .track-card:nth-child(3) { animation-delay: 0.3s; }
+        .track-card:nth-child(4) { animation-delay: 0.4s; }
+        .track-card:nth-child(5) { animation-delay: 0.5s; }
+        .track-card:nth-child(6) { animation-delay: 0.6s; }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(50px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .track-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(135deg, var(--primary), var(--tertiary));
+            opacity: 0;
+            transition: opacity 0.3s;
+            z-index: 0;
+        }
+
+        .track-card:hover {
+            transform: scale(1.03) rotate(-1deg);
+            border-color: var(--accent);
+            box-shadow: 0 10px 40px rgba(6, 255, 165, 0.3);
+        }
+
+        .track-card:hover::before {
+            opacity: 0.1;
+        }
+
+        .track-content {
+            position: relative;
+            z-index: 1;
+        }
+
+        .track-image {
+            width: 100%;
+            aspect-ratio: 1;
+            object-fit: cover;
+            margin-bottom: 1rem;
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            transition: transform 0.3s;
+        }
+
+        .track-card:hover .track-image {
+            transform: scale(1.05);
+        }
+
+        .track-name {
+            font-family: 'Archivo Black', sans-serif;
+            font-size: 1.3rem;
+            margin-bottom: 0.5rem;
+            color: var(--light);
+            text-transform: uppercase;
+            letter-spacing: -0.02em;
+            line-height: 1.2;
+        }
+
+        .track-artist {
+            color: var(--accent);
+            margin-bottom: 0.5rem;
+            font-size: 1rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+        }
+
+        .track-album {
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 0.9rem;
+            margin-bottom: 1rem;
+        }
+
+        .track-actions {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+            margin-top: 1rem;
+        }
+
+        .vote-btn {
+            flex: 1;
+            padding: 0.8rem;
+            font-family: 'Archivo Black', sans-serif;
+            font-size: 1.1rem;
+            border: 3px solid;
+            background: transparent;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+        }
+
+        .upvote-btn {
+            color: var(--accent);
+            border-color: var(--accent);
+        }
+
+        .upvote-btn:hover {
+            background: var(--accent);
+            color: var(--dark);
+            transform: translateY(-3px);
+            box-shadow: 0 5px 20px rgba(6, 255, 165, 0.4);
+        }
+
+        .downvote-btn {
+            color: var(--primary);
+            border-color: var(--primary);
+        }
+
+        .downvote-btn:hover {
+            background: var(--primary);
+            color: var(--light);
+            transform: translateY(3px);
+            box-shadow: 0 5px 20px rgba(255, 0, 110, 0.4);
+        }
+
+        .play-btn {
+            flex: 1;
+            padding: 0.8rem;
+            font-family: 'Archivo Black', sans-serif;
+            font-size: 1.1rem;
+            background: var(--secondary);
+            color: var(--dark);
+            border: 3px solid var(--secondary);
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+        }
+
+        .play-btn:hover {
+            background: transparent;
+            color: var(--secondary);
+            transform: scale(1.05);
+            box-shadow: 0 5px 20px rgba(255, 190, 11, 0.4);
+        }
+
+        .vote-count {
+            font-family: 'Archivo Black', sans-serif;
+            font-size: 2rem;
+            color: var(--accent);
+            text-align: center;
+            padding: 0.5rem;
+            min-width: 60px;
+            border: 3px solid var(--accent);
+            background: rgba(6, 255, 165, 0.1);
+        }
+
+        .loading {
+            text-align: center;
+            padding: 4rem;
+            font-size: 1.5rem;
+            color: var(--accent);
+            text-transform: uppercase;
+            letter-spacing: 0.2em;
+            animation: pulse 1.5s ease infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .sort-btn {
+            padding: 0.8rem 1.5rem;
+            font-family: 'Inconsolata', monospace;
+            font-size: 1rem;
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--light);
+            border: 2px solid var(--primary);
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+        }
+
+        .sort-btn:hover {
+            background: rgba(255, 0, 110, 0.2);
+            transform: translateY(-2px);
+        }
+
+        .sort-btn.active {
+            background: var(--primary);
+            color: var(--light);
+            border-color: var(--primary);
+        }
+
+        .delete-btn {
+            padding: 0.8rem;
+            font-family: 'Archivo Black', sans-serif;
+            font-size: 1rem;
+            background: transparent;
+            color: var(--primary);
+            border: 3px solid var(--primary);
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+        }
+
+        .delete-btn:hover {
+            background: var(--primary);
+            color: var(--light);
+            transform: scale(1.05);
+        }
+
+        .status-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: rgba(10, 10, 10, 0.95);
+            border-top: 3px solid var(--accent);
+            padding: 1rem;
+            text-align: center;
+            font-family: 'Archivo Black', sans-serif;
+            text-transform: uppercase;
+            letter-spacing: 0.2em;
+            z-index: 1000;
+            backdrop-filter: blur(10px);
+        }
+
+        .live-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            background: var(--accent);
+            border-radius: 50%;
+            margin-right: 0.5rem;
+            animation: blink 1s ease infinite;
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 3rem;
+            }
+
+            .tracks-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .track-actions {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Playlist<br>Democracy</h1>
+            <p class="subtitle">Vote • Play • Vibe</p>
+            <div id="userInfo" class="hidden" style="margin-top: 1rem; color: var(--accent); font-size: 1rem;"></div>
+            <div id="logoutContainer" class="hidden" style="margin-top: 2rem;">
+                <a href="/logout" class="btn" style="padding: 1rem 2rem; font-size: 1rem; background: var(--primary); border-color: var(--primary);">Logout</a>
+            </div>
+        </header>
+
+        <div id="loginSection" class="login-section hidden">
+            <a href="/login" class="btn">Connect Spotify</a>
+            <div style="margin-top: 2rem;">
+                <button onclick="clearSession()" style="padding: 1rem 2rem; background: rgba(255,0,110,0.2); border: 2px solid var(--primary); color: var(--primary); cursor: pointer; font-family: 'Inconsolata', monospace; text-transform: uppercase;">
+                    Clear Old Session
+                </button>
+            </div>
+        </div>
+
+        <div id="appSection" class="hidden">
+            <div class="playlist-selector">
+                <div class="custom-select-wrapper">
+                    <input 
+                        type="text" 
+                        id="playlistSearch" 
+                        class="playlist-search-input" 
+                        placeholder="SEARCH PLAYLISTS..."
+                        autocomplete="off"
+                    >
+                    <div id="playlistDropdown" class="playlist-dropdown hidden"></div>
+                </div>
+            </div>
+
+            <div id="sortControls" class="hidden" style="display: flex; justify-content: center; gap: 1rem; margin-bottom: 2rem; flex-wrap: wrap;">
+                <button class="sort-btn active" onclick="sortTracks('votes-desc')" id="sort-votes-desc">
+                    🔥 Most Votes
+                </button>
+                <button class="sort-btn" onclick="sortTracks('votes-asc')" id="sort-votes-asc">
+                    ❄️ Least Votes
+                </button>
+                <button class="sort-btn" onclick="sortTracks('name-asc')" id="sort-name-asc">
+                    🔤 A-Z
+                </button>
+                <button class="sort-btn" onclick="sortTracks('name-desc')" id="sort-name-desc">
+                    🔤 Z-A
+                </button>
+            </div>
+
+            <div id="tracksContainer"></div>
+        </div>
+
+        <div class="status-bar">
+            <span class="live-indicator"></span>
+            <span>Live Voting Active</span>
+        </div>
+    </div>
+
+    <script>
+        let ws;
+        let currentPlaylistId = null;
+        let allTracks = []; // Store all tracks for sorting
+        let currentSort = 'votes-desc'; // Default sort
+        let allPlaylists = []; // Store all playlists for searching
+        let selectedPlaylistName = '';
+
+        // Check authentication status
+        async function checkAuth() {
+            try {
+                console.log('Checking auth status...');
+                const response = await fetch('/api/auth-status'); // Don't use wrapper here - just check
+                const data = await response.json();
+                
+                console.log('Auth status:', data);
+                
+                if (data.authenticated) {
+                    document.getElementById('loginSection').classList.add('hidden');
+                    document.getElementById('appSection').classList.remove('hidden');
+                    document.getElementById('logoutContainer').classList.remove('hidden');
+                    
+                    // Show user info
+                    const userInfo = document.getElementById('userInfo');
+                    if (data.user_id) {
+                        userInfo.textContent = `Logged in as: ${data.user_id}`;
+                        userInfo.classList.remove('hidden');
+                        console.log('Logged in as:', data.user_id);
+                    }
+                    
+                    loadPlaylists();
+                    connectWebSocket();
+                } else {
+                    // Session not valid - clear cookie and show login
+                    console.log('Not authenticated, clearing session...');
+                    document.cookie = 'spotify-session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+                    
+                    document.getElementById('loginSection').classList.remove('hidden');
+                    document.getElementById('appSection').classList.add('hidden');
+                    document.getElementById('logoutContainer').classList.add('hidden');
+                    document.getElementById('userInfo').classList.add('hidden');
+                }
+            } catch (error) {
+                console.error('Auth check failed:', error);
+                document.cookie = 'spotify-session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+                document.getElementById('loginSection').classList.remove('hidden');
+                document.getElementById('appSection').classList.add('hidden');
+            }
+        }
+
+        // Global error handler for 401 responses
+        async function handleFetchWithAuth(url, options = {}) {
+            const response = await fetch(url, options);
+            
+            // If unauthorized, redirect to login
+            if (response.status === 401) {
+                console.log('Session expired, clearing session and redirecting to login...');
+                
+                // Clear the session cookie
+                document.cookie = 'spotify-session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+                
+                alert('Your session has expired. Please log in again.');
+                window.location.href = '/login';
+                throw new Error('Session expired');
+            }
+            
+            return response;
+        }
+
+        // Connect to WebSocket for real-time updates
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+            
+            ws.onmessage = function(event) {
+                const update = JSON.parse(event.data);
+                updateVoteCount(update.track_id, update.votes);
+            };
+
+            ws.onerror = function(error) {
+                console.error('WebSocket error:', error);
+            };
+
+            ws.onclose = function() {
+                console.log('WebSocket disconnected, reconnecting...');
+                setTimeout(connectWebSocket, 3000);
+            };
+        }
+
+        // Load user's playlists
+        async function loadPlaylists() {
+            try {
+                console.log('Fetching playlists...');
+                const response = await fetch('/api/playlists');
+                
+                if (!response.ok) {
+                    console.error('Playlist fetch failed:', response.status, response.statusText);
+                    alert(`Failed to load playlists: ${response.status} ${response.statusText}`);
+                    return;
+                }
+                
+                const data = await response.json();
+                console.log('Playlist data received:', data);
+                
+                // The Spotify API returns playlists in 'items' (lowercase)
+                const playlists = data.items || data.Items || data.playlists || data.Playlists || [];
+                
+                if (!playlists || playlists.length === 0) {
+                    console.warn('No playlists found in response');
+                    return;
+                }
+                
+                allPlaylists = playlists;
+                console.log(`Successfully loaded ${playlists.length} playlists`);
+                
+                setupPlaylistSearch();
+            } catch (error) {
+                console.error('Failed to load playlists:', error);
+                alert('Failed to load playlists. Check console for details.');
+            }
+        }
+
+        // Setup playlist search functionality
+        function setupPlaylistSearch() {
+            const searchInput = document.getElementById('playlistSearch');
+            const dropdown = document.getElementById('playlistDropdown');
+            
+            // Show all playlists on focus
+            searchInput.addEventListener('focus', () => {
+                renderPlaylistDropdown('');
+                dropdown.classList.remove('hidden');
+            });
+            
+            // Filter playlists on input
+            searchInput.addEventListener('input', (e) => {
+                const searchTerm = e.target.value;
+                renderPlaylistDropdown(searchTerm);
+                dropdown.classList.remove('hidden');
+            });
+            
+            // Close dropdown when clicking outside
+            document.addEventListener('click', (e) => {
+                if (!searchInput.contains(e.target) && !dropdown.contains(e.target)) {
+                    dropdown.classList.add('hidden');
+                }
+            });
+        }
+
+        // Render filtered playlists
+        function renderPlaylistDropdown(searchTerm) {
+            const dropdown = document.getElementById('playlistDropdown');
+            const filtered = allPlaylists.filter(playlist => {
+                const name = (playlist.name || playlist.Name || '').toLowerCase();
+                return name.includes(searchTerm.toLowerCase());
+            });
+            
+            if (filtered.length === 0) {
+                dropdown.innerHTML = '<div class="no-results">No playlists found</div>';
+                return;
+            }
+            
+            dropdown.innerHTML = '';
+            filtered.forEach(playlist => {
+                const item = document.createElement('div');
+                item.className = 'playlist-item';
+                if (currentPlaylistId === (playlist.id || playlist.ID)) {
+                    item.classList.add('selected');
+                }
+                item.textContent = playlist.name || playlist.Name;
+                item.onclick = () => selectPlaylist(playlist);
+                dropdown.appendChild(item);
+            });
+        }
+
+        // Select a playlist
+        function selectPlaylist(playlist) {
+            const playlistId = playlist.id || playlist.ID;
+            const playlistName = playlist.name || playlist.Name;
+            
+            currentPlaylistId = playlistId;
+            selectedPlaylistName = playlistName;
+            
+            const searchInput = document.getElementById('playlistSearch');
+            searchInput.value = playlistName;
+            
+            const dropdown = document.getElementById('playlistDropdown');
+            dropdown.classList.add('hidden');
+            
+            loadTracks(playlistId);
+        }
+
+        // Load tracks from selected playlist
+        async function loadTracks(playlistId) {
+            currentPlaylistId = playlistId;
+            const container = document.getElementById('tracksContainer');
+            container.innerHTML = '<div class="loading">Loading tracks...</div>';
+            
+            try {
+                const response = await handleFetchWithAuth(`/api/playlist/${playlistId}/tracks`);
+                const tracks = await response.json();
+                
+                allTracks = tracks; // Store tracks globally
+                document.getElementById('sortControls').classList.remove('hidden');
+                
+                renderTracks();
+            } catch (error) {
+                if (error.message === 'Session expired') {
+                    return; // Already redirecting
+                }
+                console.error('Failed to load tracks:', error);
+                container.innerHTML = '<div class="loading">Failed to load tracks</div>';
+            }
+        }
+
+        // Sort tracks
+        function sortTracks(sortType) {
+            currentSort = sortType;
+            
+            // Update active button
+            document.querySelectorAll('.sort-btn').forEach(btn => btn.classList.remove('active'));
+            document.getElementById(`sort-${sortType}`).classList.add('active');
+            
+            // Sort the tracks
+            const sorted = [...allTracks];
+            
+            switch(sortType) {
+                case 'votes-desc':
+                    sorted.sort((a, b) => b.votes - a.votes);
+                    break;
+                case 'votes-asc':
+                    sorted.sort((a, b) => a.votes - b.votes);
+                    break;
+                case 'name-asc':
+                    sorted.sort((a, b) => a.name.localeCompare(b.name));
+                    break;
+                case 'name-desc':
+                    sorted.sort((a, b) => b.name.localeCompare(a.name));
+                    break;
+            }
+            
+            allTracks = sorted;
+            renderTracks();
+        }
+
+        // Render tracks to the DOM
+        function renderTracks() {
+            const container = document.getElementById('tracksContainer');
+            container.innerHTML = '';
+            const grid = document.createElement('div');
+            grid.className = 'tracks-grid';
+            
+            allTracks.forEach(track => {
+                const card = createTrackCard(track);
+                grid.appendChild(card);
+            });
+            
+            container.appendChild(grid);
+        }
+
+        // Create track card element
+        function createTrackCard(track) {
+            const card = document.createElement('div');
+            card.className = 'track-card';
+            card.dataset.trackId = track.id;
+            
+            card.innerHTML = `
+                <div class="track-content">
+                    <img src="${track.image_url}" alt="${track.name}" class="track-image">
+                    <div class="track-name">${track.name}</div>
+                    <div class="track-artist">${track.artists}</div>
+                    <div class="track-album">${track.album}</div>
+                    <div class="track-actions">
+                        <button class="vote-btn upvote-btn" onclick="vote('${track.id}', 1)">↑</button>
+                        <div class="vote-count" data-track-id="${track.id}">${track.votes}</div>
+                        <button class="vote-btn downvote-btn" onclick="vote('${track.id}', -1)">↓</button>
+                    </div>
+                    <div class="track-actions" style="margin-top: 1rem;">
+                        <button class="play-btn" onclick="playTrack('${track.uri}')">▶ Play</button>
+                    </div>
+                    <div class="track-actions" style="margin-top: 1rem;">
+                        <button class="delete-btn" onclick="deleteTrack('${track.id}', '${track.uri}')">🗑️ Remove</button>
+                    </div>
+                </div>
+            `;
+            
+            return card;
+        }
+
+        // Vote on a track
+        async function vote(trackId, voteValue) {
+            try {
+                const response = await fetch('/api/vote', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        track_id: trackId,
+                        vote: voteValue
+                    })
+                });
+                
+                const data = await response.json();
+                if (!data.success) {
+                    console.error('Vote failed');
+                }
+            } catch (error) {
+                console.error('Vote error:', error);
+            }
+        }
+
+        // Update vote count display
+        function updateVoteCount(trackId, votes) {
+            const voteElement = document.querySelector(`.vote-count[data-track-id="${trackId}"]`);
+            if (voteElement) {
+                voteElement.textContent = votes;
+                voteElement.style.animation = 'none';
+                setTimeout(() => {
+                    voteElement.style.animation = 'pulse 0.5s ease';
+                }, 10);
+            }
+            
+            // Update the track in allTracks array
+            const track = allTracks.find(t => t.id === trackId);
+            if (track) {
+                track.votes = votes;
+                
+                // Re-sort if currently sorting by votes
+                if (currentSort === 'votes-desc' || currentSort === 'votes-asc') {
+                    sortTracks(currentSort);
+                }
+            }
+        }
+
+        // Play a track
+        async function playTrack(uri) {
+            try {
+                const response = await handleFetchWithAuth('/api/play', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ uri })
+                });
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('Play error:', errorText);
+                    
+                    // Show user-friendly error
+                    if (response.status === 400 && errorText.includes('No active Spotify devices')) {
+                        alert('⚠️ No Spotify device found!\n\n' +
+                              'Please:\n' +
+                              '1. Open Spotify on your phone, computer, or web player\n' +
+                              '2. Play any song (to activate the device)\n' +
+                              '3. Try again');
+                    } else if (errorText.includes('Try playing something manually')) {
+                        alert('⚠️ Spotify device inactive!\n\n' +
+                              'Please open Spotify and play any song manually first,\n' +
+                              'then try again.');
+                    } else {
+                        alert('Failed to play track: ' + errorText);
+                    }
+                    return;
+                }
+                
+                const data = await response.json();
+                if (data.device) {
+                    console.log('✅ Playing on:', data.device, '(' + data.device_type + ')');
+                }
+            } catch (error) {
+                if (error.message === 'Session expired') {
+                    return; // Already redirecting
+                }
+                console.error('Play error:', error);
+                alert('Failed to play track. Make sure Spotify is open and playing.');
+            }
+        }
+
+        // Delete track from playlist
+        async function deleteTrack(trackId, trackUri) {
+            if (!currentPlaylistId) {
+                alert('No playlist selected');
+                return;
+            }
+
+            if (!confirm('Are you sure you want to remove this track from the playlist?')) {
+                return;
+            }
+
+            try {
+                const response = await handleFetchWithAuth('/api/delete-track', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        playlist_id: currentPlaylistId,
+                        track_uri: trackUri
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('Delete error:', errorText);
+                    alert('Failed to remove track: ' + errorText);
+                    return;
+                }
+
+                // Remove from local array
+                allTracks = allTracks.filter(t => t.id !== trackId);
+                
+                // Re-render
+                renderTracks();
+                
+                console.log('✅ Track removed from playlist');
+            } catch (error) {
+                if (error.message === 'Session expired') {
+                    return; // Already redirecting
+                }
+                console.error('Delete error:', error);
+                alert('Failed to remove track from playlist.');
+            }
+        }
+
+        // Initialize app
+        checkAuth();
+
+        // Clear session cookie (for debugging/old sessions)
+        function clearSession() {
+            document.cookie = 'spotify-session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+            console.log('Session cookie cleared');
+            alert('Session cleared! You can now login again.');
+            location.reload();
+        }
+    </script>
+</body>
+</html>
