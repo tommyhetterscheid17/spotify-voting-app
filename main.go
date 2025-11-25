@@ -25,7 +25,7 @@ import (
 )
 
 var (
-	redirectURL string                    
+	redirectURL string
 	auth        *spotifyauth.Authenticator
 	state        = "spotify-voting-app"
 	store        = sessions.NewCookieStore([]byte("super-secret-key-change-in-production"))
@@ -353,7 +353,13 @@ func (app *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 	session.Values["id"] = sessionID
 	session.Save(r, w)
 
-	url := auth.AuthURL(state)
+	// Force Spotify to show the authorization dialog AND account selection
+	// show_dialog=true: Shows the authorization screen
+	// This helps when testing with multiple accounts
+	url := auth.AuthURL(state) + "&show_dialog=true"
+	
+	log.Printf("🔗 Redirecting to Spotify authorization: %s", url)
+	log.Printf("💡 Tip: To test with different accounts, revoke app access at: https://www.spotify.com/account/apps/")
 	http.Redirect(w, r, url, http.StatusTemporaryRedirect)
 }
 
@@ -604,8 +610,9 @@ func (app *App) handlePlayTrack(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		URI      string `json:"uri"`
-		DeviceID string `json:"device_id,omitempty"`
+		URI        string `json:"uri"`
+		PlaylistID string `json:"playlist_id,omitempty"`
+		DeviceID   string `json:"device_id,omitempty"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -650,10 +657,27 @@ func (app *App) handlePlayTrack(w http.ResponseWriter, r *http.Request) {
 
 	targetDeviceID = &activeDevice.ID
 
-	// Try to play on the device
-	playOptions := &spotify.PlayOptions{
-		URIs:     []spotify.URI{spotify.URI(req.URI)},
-		DeviceID: targetDeviceID,
+	// Build play options - if we have a playlist, play from context with offset
+	var playOptions *spotify.PlayOptions
+	
+	if req.PlaylistID != "" {
+		// Play from playlist context starting at this track
+		playlistURI := spotify.URI("spotify:playlist:" + req.PlaylistID)
+		trackURI := spotify.URI(req.URI)
+		
+		playOptions = &spotify.PlayOptions{
+			PlaybackContext: &playlistURI,
+			PlaybackOffset:  &spotify.PlaybackOffset{URI: trackURI},
+			DeviceID:        targetDeviceID,
+		}
+		log.Printf("ℹ️  Playing from playlist context: %s, starting at: %s", req.PlaylistID, req.URI)
+	} else {
+		// Fallback: just play the single track
+		playOptions = &spotify.PlayOptions{
+			URIs:     []spotify.URI{spotify.URI(req.URI)},
+			DeviceID: targetDeviceID,
+		}
+		log.Printf("ℹ️  Playing single track: %s", req.URI)
 	}
 
 	err = userSession.Client.PlayOpt(ctx, playOptions)
@@ -684,8 +708,8 @@ func (app *App) handlePlayTrack(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":    true,
-		"device":     activeDevice.Name,
+		"success":     true,
+		"device":      activeDevice.Name,
 		"device_type": activeDevice.Type,
 	})
 }
@@ -776,6 +800,103 @@ func (app *App) handleDeleteTrack(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("🗑️  User %s removed track %s from playlist %s", 
 		userSession.UserID, req.TrackURI, req.PlaylistID)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]bool{"success": true})
+}
+
+func (app *App) handleGetNowPlaying(w http.ResponseWriter, r *http.Request) {
+	userSession, err := app.getSession(r)
+	if err != nil {
+		http.Error(w, "Not authenticated", http.StatusUnauthorized)
+		return
+	}
+
+	ctx := context.Background()
+	currentlyPlaying, err := userSession.Client.PlayerCurrentlyPlaying(ctx)
+	if err != nil {
+		log.Printf("Failed to get currently playing: %v", err)
+		http.Error(w, "Failed to get currently playing", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(currentlyPlaying)
+}
+
+func (app *App) handlePlayPause(w http.ResponseWriter, r *http.Request) {
+	userSession, err := app.getSession(r)
+	if err != nil {
+		http.Error(w, "Not authenticated", http.StatusUnauthorized)
+		return
+	}
+
+	ctx := context.Background()
+	
+	// Get current playback state
+	currentlyPlaying, err := userSession.Client.PlayerCurrentlyPlaying(ctx)
+	if err != nil {
+		log.Printf("Failed to get playback state: %v", err)
+		http.Error(w, "Failed to get playback state", http.StatusInternalServerError)
+		return
+	}
+
+	// Toggle play/pause
+	if currentlyPlaying != nil && currentlyPlaying.Playing {
+		err = userSession.Client.Pause(ctx)
+		log.Printf("⏸️  User %s paused playback", userSession.UserID)
+	} else {
+		err = userSession.Client.Play(ctx)
+		log.Printf("▶️  User %s resumed playback", userSession.UserID)
+	}
+
+	if err != nil {
+		log.Printf("Failed to toggle play/pause: %v", err)
+		http.Error(w, "Failed to toggle play/pause", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]bool{"success": true})
+}
+
+func (app *App) handleNext(w http.ResponseWriter, r *http.Request) {
+	userSession, err := app.getSession(r)
+	if err != nil {
+		http.Error(w, "Not authenticated", http.StatusUnauthorized)
+		return
+	}
+
+	ctx := context.Background()
+	err = userSession.Client.Next(ctx)
+	if err != nil {
+		log.Printf("Failed to skip to next track: %v", err)
+		http.Error(w, "Failed to skip to next track", http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("⏭️  User %s skipped to next track", userSession.UserID)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]bool{"success": true})
+}
+
+func (app *App) handlePrevious(w http.ResponseWriter, r *http.Request) {
+	userSession, err := app.getSession(r)
+	if err != nil {
+		http.Error(w, "Not authenticated", http.StatusUnauthorized)
+		return
+	}
+
+	ctx := context.Background()
+	err = userSession.Client.Previous(ctx)
+	if err != nil {
+		log.Printf("Failed to skip to previous track: %v", err)
+		http.Error(w, "Failed to skip to previous track", http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("⏮️  User %s skipped to previous track", userSession.UserID)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]bool{"success": true})
@@ -873,7 +994,6 @@ func handleBroadcast() {
 }
 
 func main() {
-	// Set Spotify credentials from environment variables
 	// Load environment variables from .env file if present
 	if _, err := os.Stat(".env"); err == nil {
 		if err := godotenv.Load(".env"); err != nil {
@@ -888,6 +1008,8 @@ func main() {
 		log.Fatal("SPOTIFY_ID and SPOTIFY_SECRET environment variables must be set")
 	}
 
+
+	// Initialize redirect URL and auth AFTER env vars are set
 	redirectURL = getRedirectURL()
 	auth = spotifyauth.New(
 		spotifyauth.WithRedirectURL(redirectURL),
@@ -902,7 +1024,6 @@ func main() {
 			spotifyauth.ScopeStreaming,
 		),
 	)
-
 
 	app := NewApp()
 	go handleBroadcast()
@@ -920,6 +1041,10 @@ func main() {
 	r.HandleFunc("/api/play", app.handlePlayTrack).Methods("POST")
 	r.HandleFunc("/api/devices", app.handleGetDevices).Methods("GET")
 	r.HandleFunc("/api/delete-track", app.handleDeleteTrack).Methods("POST")
+	r.HandleFunc("/api/now-playing", app.handleGetNowPlaying).Methods("GET")
+	r.HandleFunc("/api/playback/play-pause", app.handlePlayPause).Methods("POST")
+	r.HandleFunc("/api/playback/next", app.handleNext).Methods("POST")
+	r.HandleFunc("/api/playback/previous", app.handlePrevious).Methods("POST")
 	r.HandleFunc("/ws", handleWebSocket)
 
 	// Serve static files
@@ -960,4 +1085,18 @@ func main() {
 func mustGetWd() string {
 	wd, _ := os.Getwd()
 	return wd
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }

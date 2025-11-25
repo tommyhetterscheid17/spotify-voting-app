@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Playlist Democracy Test</title>
+    <title>Playlist Democracy</title>
     <!-- Version 2.0 - Debug Build -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -195,7 +195,7 @@
             overflow-y: auto;
             background: rgba(10, 10, 10, 0.98);
             border: 3px solid var(--accent);
-            z-index: 1000;
+            z-index: 10000;
             backdrop-filter: blur(10px);
         }
 
@@ -509,6 +509,93 @@
             backdrop-filter: blur(10px);
         }
 
+        .now-playing-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: rgba(10, 10, 10, 0.98);
+            border-top: 4px solid var(--secondary);
+            padding: 1rem 2rem;
+            z-index: 1001;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 -5px 30px rgba(255, 190, 11, 0.3);
+        }
+
+        .now-playing-content {
+            max-width: 1400px;
+            margin: 0 auto;
+            display: flex;
+            align-items: center;
+            gap: 1.5rem;
+        }
+
+        .now-playing-image {
+            width: 60px;
+            height: 60px;
+            object-fit: cover;
+            border: 2px solid var(--secondary);
+        }
+
+        .now-playing-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .now-playing-track {
+            font-family: 'Archivo Black', sans-serif;
+            font-size: 1.1rem;
+            color: var(--secondary);
+            text-transform: uppercase;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            margin-bottom: 0.3rem;
+        }
+
+        .now-playing-artist {
+            font-family: 'Inconsolata', monospace;
+            font-size: 0.9rem;
+            color: var(--light);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .playback-controls {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+
+        .control-btn {
+            padding: 0.8rem 1rem;
+            font-size: 1.2rem;
+            background: rgba(255, 190, 11, 0.1);
+            color: var(--secondary);
+            border: 2px solid var(--secondary);
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-family: 'Archivo Black', sans-serif;
+        }
+
+        .control-btn:hover {
+            background: var(--secondary);
+            color: var(--dark);
+            transform: scale(1.1);
+        }
+
+        .play-pause-btn {
+            padding: 0.8rem 1.5rem;
+            font-size: 1.5rem;
+        }
+
+        .now-playing-actions {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+
         .live-indicator {
             display: inline-block;
             width: 12px;
@@ -535,6 +622,25 @@
 
             .track-actions {
                 flex-direction: column;
+            }
+
+            .now-playing-content {
+                flex-wrap: wrap;
+                gap: 1rem;
+            }
+
+            .now-playing-image {
+                width: 50px;
+                height: 50px;
+            }
+
+            .now-playing-track {
+                font-size: 0.9rem;
+            }
+
+            .now-playing-actions {
+                flex: 1 0 100%;
+                justify-content: center;
             }
         }
     </style>
@@ -573,7 +679,7 @@
                 </div>
             </div>
 
-            <div id="sortControls" class="hidden" style="display: flex; justify-content: center; gap: 1rem; margin-bottom: 2rem; flex-wrap: wrap;">
+            <div id="sortControls" class="hidden" style="display: flex; justify-content: center; gap: 1rem; margin-bottom: 2rem; flex-wrap: wrap; align-items: center;">
                 <button class="sort-btn active" onclick="sortTracks('votes-desc')" id="sort-votes-desc">
                     🔥 Most Votes
                 </button>
@@ -586,14 +692,37 @@
                 <button class="sort-btn" onclick="sortTracks('name-desc')" id="sort-name-desc">
                     🔤 Z-A
                 </button>
+                <button class="sort-btn" onclick="manualRefresh()" style="background: rgba(6, 255, 165, 0.1); border-color: var(--accent); color: var(--accent);">
+                    🔄 Refresh Ranking
+                </button>
             </div>
 
             <div id="tracksContainer"></div>
         </div>
 
-        <div class="status-bar">
+        <div class="status-bar" id="statusBar">
             <span class="live-indicator"></span>
-            <span>Live Voting Active</span>
+            <span id="statusText">Live Voting Active</span>
+        </div>
+
+        <div class="now-playing-bar hidden" id="nowPlayingBar">
+            <div class="now-playing-content">
+                <img id="nowPlayingImage" src="" alt="" class="now-playing-image">
+                <div class="now-playing-info">
+                    <div class="now-playing-track" id="nowPlayingTrack">Track Name</div>
+                    <div class="now-playing-artist" id="nowPlayingArtist">Artist Name</div>
+                </div>
+                <div class="playback-controls">
+                    <button class="control-btn" onclick="previousTrack()" title="Previous">⏮️</button>
+                    <button class="control-btn play-pause-btn" onclick="togglePlayPause()" id="playPauseBtn" title="Play/Pause">▶️</button>
+                    <button class="control-btn" onclick="nextTrack()" title="Next">⏭️</button>
+                </div>
+                <div class="now-playing-actions">
+                    <button class="vote-btn upvote-btn" id="nowPlayingUpvote" style="padding: 0.6rem 1rem;">↑</button>
+                    <div class="vote-count" id="nowPlayingVotes" style="font-size: 1.5rem; min-width: 50px;">0</div>
+                    <button class="vote-btn downvote-btn" id="nowPlayingDownvote" style="padding: 0.6rem 1rem;">↓</button>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -604,6 +733,9 @@
         let currentSort = 'votes-desc'; // Default sort
         let allPlaylists = []; // Store all playlists for searching
         let selectedPlaylistName = '';
+        let resortTimeout = null; // For debouncing resort
+        let nowPlayingInterval = null; // For polling current playback
+        let currentTrackId = null; // Track currently playing
 
         // Check authentication status
         async function checkAuth() {
@@ -629,6 +761,7 @@
                     
                     loadPlaylists();
                     connectWebSocket();
+                    startNowPlayingPolling(); // Start polling for current track
                 } else {
                     // Session not valid - clear cookie and show login
                     console.log('Not authenticated, clearing session...');
@@ -841,6 +974,27 @@
             renderTracks();
         }
 
+        // Manual refresh - force re-sort now
+        function manualRefresh() {
+            console.log('🔄 Manual refresh triggered');
+            
+            // Clear any pending auto-resort
+            if (resortTimeout) {
+                clearTimeout(resortTimeout);
+                resortTimeout = null;
+            }
+            
+            // Re-sort with current sort type
+            sortTracks(currentSort);
+            
+            // Visual feedback
+            const btn = event.target;
+            btn.textContent = '✅ Updated!';
+            setTimeout(() => {
+                btn.textContent = '🔄 Refresh Ranking';
+            }, 1000);
+        }
+
         // Render tracks to the DOM
         function renderTracks() {
             const container = document.getElementById('tracksContainer');
@@ -919,14 +1073,47 @@
                 }, 10);
             }
             
+            // Update now playing bar if it's the same track
+            if (currentTrackId === trackId) {
+                const nowPlayingVotes = document.getElementById('nowPlayingVotes');
+                if (nowPlayingVotes) {
+                    nowPlayingVotes.textContent = votes;
+                    nowPlayingVotes.style.animation = 'none';
+                    setTimeout(() => {
+                        nowPlayingVotes.style.animation = 'pulse 0.5s ease';
+                    }, 10);
+                }
+            }
+            
+            // Add visual flash to the entire card
+            const card = document.querySelector(`.track-card[data-track-id="${trackId}"]`);
+            if (card) {
+                card.style.transition = 'all 0.3s ease';
+                card.style.boxShadow = '0 0 40px rgba(6, 255, 165, 0.8)';
+                card.style.transform = 'scale(1.05)';
+                setTimeout(() => {
+                    card.style.boxShadow = '';
+                    card.style.transform = '';
+                }, 500);
+            }
+            
             // Update the track in allTracks array
             const track = allTracks.find(t => t.id === trackId);
             if (track) {
                 track.votes = votes;
                 
-                // Re-sort if currently sorting by votes
+                // Debounced re-sort: only re-sort if currently sorting by votes AND after 3 seconds of no updates
                 if (currentSort === 'votes-desc' || currentSort === 'votes-asc') {
-                    sortTracks(currentSort);
+                    // Clear existing timeout
+                    if (resortTimeout) {
+                        clearTimeout(resortTimeout);
+                    }
+                    
+                    // Set new timeout - will only resort if no more votes come in for 3 seconds
+                    resortTimeout = setTimeout(() => {
+                        console.log('🔄 Re-sorting after vote updates settled');
+                        sortTracks(currentSort);
+                    }, 3000); // Wait 3 seconds after last vote before re-sorting
                 }
             }
         }
@@ -939,7 +1126,10 @@
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ uri })
+                    body: JSON.stringify({ 
+                        uri: uri,
+                        playlist_id: currentPlaylistId // Send playlist context
+                    })
                 });
                 
                 if (!response.ok) {
@@ -1031,6 +1221,168 @@
             console.log('Session cookie cleared');
             alert('Session cleared! You can now login again.');
             location.reload();
+        }
+
+        // Start polling for currently playing track
+        function startNowPlayingPolling() {
+            // Poll every 5 seconds
+            updateNowPlaying(); // Initial call
+            nowPlayingInterval = setInterval(updateNowPlaying, 5000);
+        }
+
+        // Stop polling (when logged out)
+        function stopNowPlayingPolling() {
+            if (nowPlayingInterval) {
+                clearInterval(nowPlayingInterval);
+                nowPlayingInterval = null;
+            }
+        }
+
+        // Update now playing bar
+        async function updateNowPlaying() {
+            try {
+                const response = await fetch('/api/now-playing');
+                
+                if (!response.ok) {
+                    // No track playing or error
+                    hideNowPlaying();
+                    return;
+                }
+                
+                const data = await response.json();
+                
+                if (!data.item) {
+                    hideNowPlaying();
+                    return;
+                }
+                
+                const track = data.item;
+                const trackId = track.id;
+                const isPlaying = data.is_playing;
+                
+                // Update play/pause button
+                updatePlayPauseButton(isPlaying);
+                
+                // Only update if it's a different track
+                if (trackId === currentTrackId) {
+                    return;
+                }
+                
+                currentTrackId = trackId;
+                
+                // Find votes for this track
+                const trackData = allTracks.find(t => t.id === trackId);
+                const votes = trackData ? trackData.votes : 0;
+                
+                showNowPlaying(track, votes);
+                
+            } catch (error) {
+                console.error('Error fetching now playing:', error);
+            }
+        }
+
+        // Show now playing bar
+        function showNowPlaying(track, votes) {
+            const nowPlayingBar = document.getElementById('nowPlayingBar');
+            const statusBar = document.getElementById('statusBar');
+            
+            // Update content
+            document.getElementById('nowPlayingImage').src = track.album.images[0]?.url || '';
+            document.getElementById('nowPlayingTrack').textContent = track.name;
+            document.getElementById('nowPlayingArtist').textContent = track.artists.map(a => a.name).join(', ');
+            document.getElementById('nowPlayingVotes').textContent = votes;
+            
+            // Set up vote buttons
+            document.getElementById('nowPlayingUpvote').onclick = () => vote(track.id, 1);
+            document.getElementById('nowPlayingDownvote').onclick = () => vote(track.id, -1);
+            
+            // Show now playing, hide status
+            nowPlayingBar.classList.remove('hidden');
+            statusBar.classList.add('hidden');
+        }
+
+        // Update play/pause button based on playback state
+        function updatePlayPauseButton(isPlaying) {
+            const btn = document.getElementById('playPauseBtn');
+            if (btn) {
+                btn.textContent = isPlaying ? '⏸️' : '▶️';
+                btn.title = isPlaying ? 'Pause' : 'Play';
+            }
+        }
+
+        // Hide now playing bar
+        function hideNowPlaying() {
+            const nowPlayingBar = document.getElementById('nowPlayingBar');
+            const statusBar = document.getElementById('statusBar');
+            
+            currentTrackId = null;
+            
+            nowPlayingBar.classList.add('hidden');
+            statusBar.classList.remove('hidden');
+        }
+
+        // Playback controls
+        async function togglePlayPause() {
+            try {
+                const response = await handleFetchWithAuth('/api/playback/play-pause', {
+                    method: 'POST'
+                });
+                
+                if (!response.ok) {
+                    console.error('Play/Pause failed');
+                    return;
+                }
+                
+                // Update button icon after a short delay
+                setTimeout(() => {
+                    updateNowPlaying();
+                }, 500);
+                
+            } catch (error) {
+                console.error('Play/Pause error:', error);
+            }
+        }
+
+        async function nextTrack() {
+            try {
+                const response = await handleFetchWithAuth('/api/playback/next', {
+                    method: 'POST'
+                });
+                
+                if (!response.ok) {
+                    console.error('Next track failed');
+                    return;
+                }
+                
+                // Force update now playing after short delay
+                setTimeout(() => {
+                    updateNowPlaying();
+                }, 1000);
+                
+            } catch (error) {
+                console.error('Next track error:', error);
+            }
+        }
+
+        async function previousTrack() {
+            try {
+                const response = await handleFetchWithAuth('/api/playback/previous', {
+                    method: 'POST'
+                });
+                
+                if (!response.ok) {
+                    console.error('Previous track failed');
+                    return;
+                }
+                
+                // Force update now playing after short delay
+                setTimeout(() => {
+                    updateNowPlaying();
+                }, 1000);
+                
+            } catch (error) {
+                console.error('Previous track error:', error);
+            }
         }
     </script>
 </body>

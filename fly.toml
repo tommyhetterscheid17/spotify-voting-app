@@ -21,6 +21,6 @@ primary_region = "ams"
   memory_mb = 256
 
 # Persistent storage for SQLite database
-[[mounts]]
+[mounts]
   source = "votes_data"
   destination = "/data"

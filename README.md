@@ -1,6 +1,6 @@
-# Spotify Playlist Voting App 
+# Spotify Playlist Voting App
 
-A **multi-user** real-time voting system for Spotify playlists where multiple users can simultaneously vote on tracks and play them directly through Spotify. Test.
+A **multi-user** real-time voting system for Spotify playlists where multiple users can simultaneously vote on tracks and play them directly through Spotify.
 
 ## Features
 
