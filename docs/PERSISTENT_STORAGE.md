@@ -1,7 +1,6 @@
 # Persistent Storage Setup for Fly.io
 
 ## De votes blijven nu bewaard na restarts! 🎉
-Test iets nietws
 ### Hoe het werkt:
 
 1. **SQLite database**: Votes worden opgeslagen in `votes.db`
