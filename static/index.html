@@ -24,6 +24,10 @@
             box-sizing: border-box;
         }
 
+        html {
+            scroll-behavior: smooth;
+        }
+
         body {
             font-family: 'Inconsolata', monospace;
             background: var(--dark);
@@ -154,11 +158,14 @@
         .playlist-selector {
             margin-bottom: 3rem;
             animation: fadeIn 1s ease 0.9s both;
+            position: relative;
+            z-index: 10000 !important;
         }
 
         .custom-select-wrapper {
             position: relative;
             width: 100%;
+            z-index: 10000 !important;
         }
 
         .playlist-search-input {
@@ -173,6 +180,8 @@
             transition: all 0.3s ease;
             text-transform: uppercase;
             letter-spacing: 0.1em;
+            position: relative;
+            z-index: 10001 !important;
         }
 
         .playlist-search-input:focus {
@@ -195,7 +204,7 @@
             overflow-y: auto;
             background: rgba(10, 10, 10, 0.98);
             border: 3px solid var(--accent);
-            z-index: 10000;
+            z-index: 10002 !important;
             backdrop-filter: blur(10px);
         }
 
@@ -387,6 +396,12 @@
             box-shadow: 0 5px 20px rgba(6, 255, 165, 0.4);
         }
 
+        .upvote-btn.voted {
+            background: var(--accent);
+            color: var(--dark);
+            font-weight: bold;
+        }
+
         .downvote-btn {
             color: var(--primary);
             border-color: var(--primary);
@@ -397,6 +412,12 @@
             color: var(--light);
             transform: translateY(3px);
             box-shadow: 0 5px 20px rgba(255, 0, 110, 0.4);
+        }
+
+        .downvote-btn.voted {
+            background: var(--primary);
+            color: var(--light);
+            font-weight: bold;
         }
 
         .play-btn {
@@ -686,18 +707,21 @@
                 <button class="sort-btn" onclick="sortTracks('votes-asc')" id="sort-votes-asc">
                     ❄️ Least Votes
                 </button>
-                <button class="sort-btn" onclick="sortTracks('name-asc')" id="sort-name-asc">
-                    🔤 A-Z
-                </button>
-                <button class="sort-btn" onclick="sortTracks('name-desc')" id="sort-name-desc">
-                    🔤 Z-A
+                <button class="sort-btn" onclick="sortTracks('not-voted')" id="sort-not-voted">
+                    ⭕ Not Voted Yet
                 </button>
                 <button class="sort-btn" onclick="manualRefresh()" style="background: rgba(6, 255, 165, 0.1); border-color: var(--accent); color: var(--accent);">
                     🔄 Refresh Ranking
                 </button>
+                <button class="sort-btn" onclick="toggleDeletedTracks()" id="deleted-toggle" style="background: rgba(255, 0, 110, 0.1); border-color: var(--primary); color: var(--primary);">
+                    🗑️ Show Deleted
+                </button>
             </div>
 
-            <div id="tracksContainer"></div>
+            <div id="tracksContainer">
+                <!-- This container stays, only grid inside changes -->
+                <div id="tracksGrid" class="tracks-grid"></div>
+            </div>
         </div>
 
         <div class="status-bar" id="statusBar">
@@ -713,14 +737,14 @@
                     <div class="now-playing-artist" id="nowPlayingArtist">Artist Name</div>
                 </div>
                 <div class="playback-controls">
-                    <button class="control-btn" onclick="previousTrack()" title="Previous">⏮️</button>
-                    <button class="control-btn play-pause-btn" onclick="togglePlayPause()" id="playPauseBtn" title="Play/Pause">▶️</button>
-                    <button class="control-btn" onclick="nextTrack()" title="Next">⏭️</button>
+                    <button type="button" class="control-btn" onclick="event.preventDefault(); previousTrack()" title="Previous">⏮️</button>
+                    <button type="button" class="control-btn play-pause-btn" onclick="event.preventDefault(); togglePlayPause()" id="playPauseBtn" title="Play/Pause">▶️</button>
+                    <button type="button" class="control-btn" onclick="event.preventDefault(); nextTrack()" title="Next">⏭️</button>
                 </div>
                 <div class="now-playing-actions">
-                    <button class="vote-btn upvote-btn" id="nowPlayingUpvote" style="padding: 0.6rem 1rem;">↑</button>
+                    <button type="button" class="vote-btn upvote-btn" id="nowPlayingUpvote" style="padding: 0.6rem 1rem;">↑</button>
                     <div class="vote-count" id="nowPlayingVotes" style="font-size: 1.5rem; min-width: 50px;">0</div>
-                    <button class="vote-btn downvote-btn" id="nowPlayingDownvote" style="padding: 0.6rem 1rem;">↓</button>
+                    <button type="button" class="vote-btn downvote-btn" id="nowPlayingDownvote" style="padding: 0.6rem 1rem;">↓</button>
                 </div>
             </div>
         </div>
@@ -729,13 +753,39 @@
     <script>
         let ws;
         let currentPlaylistId = null;
-        let allTracks = []; // Store all tracks for sorting
+        let allTracks = []; // Store all tracks for sorting/filtering
+        let originalTracks = []; // Store original unfiltered tracks
+        let displayedTracks = []; // Currently displayed tracks
+        let displayOffset = 0; // Track how many we've displayed
+        let displayBatchSize = 50; // Load 50 at a time
         let currentSort = 'votes-desc'; // Default sort
         let allPlaylists = []; // Store all playlists for searching
         let selectedPlaylistName = '';
         let resortTimeout = null; // For debouncing resort
         let nowPlayingInterval = null; // For polling current playback
         let currentTrackId = null; // Track currently playing
+        let showingDeleted = false; // Toggle for deleted tracks view
+        let deletedTracks = []; // Store deleted tracks
+        let isLoadingMore = false; // Prevent duplicate loads
+        let scrollLocked = false; // Lock scroll during operations
+        let lockedScrollPosition = 0; // Store locked position
+
+        // Global scroll lock mechanism
+        function lockScroll() {
+            lockedScrollPosition = window.scrollY;
+            scrollLocked = true;
+        }
+
+        function unlockScroll() {
+            scrollLocked = false;
+        }
+
+        // Prevent unwanted scrolling
+        window.addEventListener('scroll', (e) => {
+            if (scrollLocked) {
+                window.scrollTo(0, lockedScrollPosition);
+            }
+        });
 
         // Check authentication status
         async function checkAuth() {
@@ -924,17 +974,39 @@
         // Load tracks from selected playlist
         async function loadTracks(playlistId) {
             currentPlaylistId = playlistId;
-            const container = document.getElementById('tracksContainer');
-            container.innerHTML = '<div class="loading">Loading tracks...</div>';
+            
+            // Show loading only in grid
+            let grid = document.getElementById('tracksGrid');
+            if (!grid) {
+                const container = document.getElementById('tracksContainer');
+                grid = document.createElement('div');
+                grid.className = 'tracks-grid';
+                grid.id = 'tracksGrid';
+                container.appendChild(grid);
+            }
+            grid.innerHTML = '<div class="loading">Loading tracks...</div>';
             
             try {
                 const response = await handleFetchWithAuth(`/api/playlist/${playlistId}/tracks`);
                 const tracks = await response.json();
                 
-                allTracks = tracks; // Store tracks globally
+                originalTracks = tracks; // Store original unfiltered tracks
+                allTracks = [...tracks]; // Store tracks globally for manipulation
                 document.getElementById('sortControls').classList.remove('hidden');
                 
+                // Reset to default sort
+                currentSort = 'votes-desc';
+                allTracks.sort((a, b) => b.votes - a.votes);
+                
+                // Render tracks
                 renderTracks();
+                
+                // Scroll to top smoothly for new playlist
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+                
+                // Update active button
+                document.querySelectorAll('.sort-btn').forEach(btn => btn.classList.remove('active'));
+                document.getElementById('sort-votes-desc')?.classList.add('active');
             } catch (error) {
                 if (error.message === 'Session expired') {
                     return; // Already redirecting
@@ -948,12 +1020,21 @@
         function sortTracks(sortType) {
             currentSort = sortType;
             
+            // Reset deleted toggle when switching sorts
+            if (sortType !== 'deleted') {
+                showingDeleted = false;
+                const deletedBtn = document.getElementById('deleted-toggle');
+                deletedBtn.textContent = '🗑️ Show Deleted';
+                deletedBtn.style.background = 'rgba(255, 0, 110, 0.1)';
+                deletedBtn.style.color = 'var(--primary)';
+            }
+            
             // Update active button
             document.querySelectorAll('.sort-btn').forEach(btn => btn.classList.remove('active'));
-            document.getElementById(`sort-${sortType}`).classList.add('active');
+            document.getElementById(`sort-${sortType}`)?.classList.add('active');
             
-            // Sort the tracks
-            const sorted = [...allTracks];
+            // Start from original tracks for filtering
+            let sorted = [...originalTracks];
             
             switch(sortType) {
                 case 'votes-desc':
@@ -962,16 +1043,16 @@
                 case 'votes-asc':
                     sorted.sort((a, b) => a.votes - b.votes);
                     break;
-                case 'name-asc':
-                    sorted.sort((a, b) => a.name.localeCompare(b.name));
-                    break;
-                case 'name-desc':
-                    sorted.sort((a, b) => b.name.localeCompare(a.name));
+                case 'not-voted':
+                    // Filter tracks where user hasn't voted (user_vote === 0)
+                    sorted = sorted.filter(track => track.user_vote === 0);
+                    sorted.sort((a, b) => b.votes - a.votes); // Still sort by votes
                     break;
             }
             
             allTracks = sorted;
-            renderTracks();
+            console.log(`🔄 Sorted tracks: ${allTracks.length} tracks (${sortType})`);
+            renderTracks(); // Grid replacement preserves scroll naturally
         }
 
         // Manual refresh - force re-sort now
@@ -995,19 +1076,257 @@
             }, 1000);
         }
 
-        // Render tracks to the DOM
-        function renderTracks() {
-            const container = document.getElementById('tracksContainer');
-            container.innerHTML = '';
-            const grid = document.createElement('div');
-            grid.className = 'tracks-grid';
+        // Toggle deleted tracks view
+        async function toggleDeletedTracks() {
+            if (!currentPlaylistId) {
+                alert('Please select a playlist first');
+                return;
+            }
+
+            showingDeleted = !showingDeleted;
+            const btn = document.getElementById('deleted-toggle');
             
-            allTracks.forEach(track => {
-                const card = createTrackCard(track);
+            if (showingDeleted) {
+                // Deactivate all other filter buttons
+                document.querySelectorAll('.sort-btn').forEach(btn => {
+                    if (btn.id !== 'deleted-toggle') {
+                        btn.classList.remove('active');
+                    }
+                });
+                
+                // Activate deleted toggle
+                btn.classList.add('active');
+                btn.textContent = '🎵 Show Current';
+                btn.style.background = 'var(--primary)';
+                btn.style.color = 'var(--light)';
+                
+                await loadDeletedTracks(currentPlaylistId);
+            } else {
+                // Show current tracks - restore default sort
+                btn.classList.remove('active');
+                btn.textContent = '🗑️ Show Deleted';
+                btn.style.background = 'rgba(255, 0, 110, 0.1)';
+                btn.style.color = 'var(--primary)';
+                
+                // Clear container and recreate grid structure
+                const container = document.getElementById('tracksContainer');
+                container.innerHTML = '';
+                const grid = document.createElement('div');
+                grid.className = 'tracks-grid';
+                grid.id = 'tracksGrid';
+                container.appendChild(grid);
+                
+                // Restore to last sort (will populate the new grid)
+                sortTracks(currentSort);
+            }
+        }
+
+        // Load deleted tracks from database
+        async function loadDeletedTracks(playlistId) {
+            // Get container and COMPLETELY clear it - nuclear option
+            const container = document.getElementById('tracksContainer');
+            
+            // Remove ALL children (including hidden loading indicators, etc)
+            while (container.firstChild) {
+                container.removeChild(container.firstChild);
+            }
+            
+            // Add loading message
+            const loadingDiv = document.createElement('div');
+            loadingDiv.className = 'loading';
+            loadingDiv.textContent = 'Loading deleted tracks...';
+            container.appendChild(loadingDiv);
+            
+            try {
+                const response = await handleFetchWithAuth(`/api/deleted-tracks/${playlistId}`);
+                
+                if (!response.ok) {
+                    throw new Error('Failed to load deleted tracks');
+                }
+                
+                deletedTracks = await response.json();
+                
+                console.log(`📊 Fetched ${deletedTracks.length} deleted tracks`);
+                
+                // Clear again
+                while (container.firstChild) {
+                    container.removeChild(container.firstChild);
+                }
+                
+                if (deletedTracks.length === 0) {
+                    container.innerHTML = `
+                        <div class="loading" style="text-align: center; padding: 3rem;">
+                            <div style="font-size: 2rem; margin-bottom: 1rem;">🗑️</div>
+                            <div style="font-size: 1.2rem; margin-bottom: 0.5rem;">No Deleted Tracks</div>
+                            <div style="font-size: 0.9rem; opacity: 0.7;">
+                                Tracks you remove from the playlist will appear here.
+                            </div>
+                        </div>
+                    `;
+                    return;
+                }
+                
+                // Create ONLY grid, nothing else
+                const grid = document.createElement('div');
+                grid.className = 'tracks-grid';
+                grid.id = 'tracksGrid';
+                container.appendChild(grid);
+                
+                console.log('✅ Fresh grid created, rendering deleted tracks');
+                
+                // Render deleted tracks into fresh grid
+                renderDeletedTracks();
+                
+            } catch (error) {
+                if (error.message === 'Session expired') {
+                    return;
+                }
+                console.error('Failed to load deleted tracks:', error);
+                container.innerHTML = '<div class="loading">Failed to load deleted tracks</div>';
+            }
+        }
+
+        // Render deleted tracks
+        function renderDeletedTracks() {
+            console.log(`🗑️ Rendering ${deletedTracks.length} deleted tracks`);
+            
+            // Always get fresh reference
+            let grid = document.getElementById('tracksGrid');
+            
+            if (!grid) {
+                console.error('❌ Grid not found in renderDeletedTracks!');
+                const container = document.getElementById('tracksContainer');
+                grid = document.createElement('div');
+                grid.className = 'tracks-grid';
+                grid.id = 'tracksGrid';
+                container.appendChild(grid);
+            }
+            
+            // Clear ALL content
+            grid.innerHTML = '';
+            console.log('🧹 Grid cleared');
+            
+            deletedTracks.forEach(track => {
+                const card = createDeletedTrackCard(track);
                 grid.appendChild(card);
             });
             
-            container.appendChild(grid);
+            console.log(`✅ ${deletedTracks.length} deleted track cards added to grid`);
+        }
+
+        // Create deleted track card
+        function createDeletedTrackCard(track) {
+            const card = document.createElement('div');
+            card.className = 'track-card';
+            card.style.opacity = '0.7';
+            card.style.border = '3px solid var(--primary)';
+            
+            const deletedDate = new Date(track.deleted_at).toLocaleString();
+            
+            card.innerHTML = `
+                <div class="track-content">
+                    <img src="${track.image_url}" alt="${track.name}" class="track-image" style="filter: grayscale(50%);">
+                    <div class="track-name">${track.name}</div>
+                    <div class="track-artist">${track.artists}</div>
+                    <div class="track-album">${track.album}</div>
+                    <div style="margin-top: 1rem; padding: 0.5rem; background: rgba(255, 0, 110, 0.2); border: 2px solid var(--primary); text-align: center;">
+                        <div style="font-size: 0.9rem; color: var(--primary);">🗑️ DELETED</div>
+                        <div style="font-size: 0.8rem; color: rgba(255, 255, 255, 0.7); margin-top: 0.3rem;">
+                            Had ${track.votes} votes<br>
+                            ${deletedDate}
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            return card;
+        }
+
+        // Render tracks to the DOM (initial load - first 50)
+        function renderTracks(preserveScroll = true) {
+            console.log(`🎨 Rendering ${allTracks.length} tracks`);
+            
+            // Get the grid element that we'll replace content in
+            let grid = document.getElementById('tracksGrid');
+            
+            if (!grid) {
+                // Fallback if grid doesn't exist (shouldn't happen)
+                console.log('⚠️  Grid not found, creating new one');
+                const container = document.getElementById('tracksContainer');
+                grid = document.createElement('div');
+                grid.className = 'tracks-grid';
+                grid.id = 'tracksGrid';
+                container.appendChild(grid);
+            }
+            
+            // Clear only the grid content, not the container
+            grid.innerHTML = '';
+            
+            // Reset pagination
+            displayOffset = 0;
+            displayedTracks = [];
+            
+            // Show first batch (will append to grid)
+            loadMoreTracks();
+            
+            // Scroll is naturally preserved because we're not touching container
+        }
+
+        // Load more tracks (for infinite scroll)
+        function loadMoreTracks() {
+            if (isLoadingMore) return;
+            
+            // Always re-fetch grid element (it might have been recreated)
+            const grid = document.getElementById('tracksGrid');
+            if (!grid) {
+                console.error('Grid element not found!');
+                return;
+            }
+            
+            isLoadingMore = true;
+            
+            // Show loading indicator
+            const container = document.getElementById('tracksContainer');
+            let loadingIndicator = document.getElementById('loadingMore');
+            if (!loadingIndicator) {
+                loadingIndicator = document.createElement('div');
+                loadingIndicator.id = 'loadingMore';
+                loadingIndicator.className = 'loading';
+                loadingIndicator.textContent = 'Loading more tracks...';
+                loadingIndicator.style.marginTop = '2rem';
+                container.appendChild(loadingIndicator);
+            }
+            loadingIndicator.classList.remove('hidden');
+            
+            // Small delay for smooth UX
+            setTimeout(() => {
+                // Re-fetch grid again in case it changed during timeout
+                const currentGrid = document.getElementById('tracksGrid');
+                if (!currentGrid) {
+                    isLoadingMore = false;
+                    return;
+                }
+                
+                const endIndex = Math.min(displayOffset + displayBatchSize, allTracks.length);
+                const tracksToAdd = allTracks.slice(displayOffset, endIndex);
+                
+                tracksToAdd.forEach(track => {
+                    const card = createTrackCard(track);
+                    currentGrid.appendChild(card);
+                    displayedTracks.push(track);
+                });
+                
+                displayOffset = endIndex;
+                isLoadingMore = false;
+                
+                // Hide loading indicator
+                if (loadingIndicator) {
+                    loadingIndicator.classList.add('hidden');
+                }
+                
+                // Log progress
+                console.log(`📊 Loaded ${displayOffset}/${allTracks.length} tracks`);
+            }, 200);
         }
 
         // Create track card element
@@ -1016,6 +1335,10 @@
             card.className = 'track-card';
             card.dataset.trackId = track.id;
             
+            // Determine button classes based on user vote
+            const upvoteClass = track.user_vote === 1 ? 'upvote-btn voted' : 'upvote-btn';
+            const downvoteClass = track.user_vote === -1 ? 'downvote-btn voted' : 'downvote-btn';
+            
             card.innerHTML = `
                 <div class="track-content">
                     <img src="${track.image_url}" alt="${track.name}" class="track-image">
@@ -1023,9 +1346,9 @@
                     <div class="track-artist">${track.artists}</div>
                     <div class="track-album">${track.album}</div>
                     <div class="track-actions">
-                        <button class="vote-btn upvote-btn" onclick="vote('${track.id}', 1)">↑</button>
+                        <button class="vote-btn ${upvoteClass}" onclick="vote('${track.id}', 1, event)" data-track-vote="${track.id}-up">↑</button>
                         <div class="vote-count" data-track-id="${track.id}">${track.votes}</div>
-                        <button class="vote-btn downvote-btn" onclick="vote('${track.id}', -1)">↓</button>
+                        <button class="vote-btn ${downvoteClass}" onclick="vote('${track.id}', -1, event)" data-track-vote="${track.id}-down">↓</button>
                     </div>
                     <div class="track-actions" style="margin-top: 1rem;">
                         <button class="play-btn" onclick="playTrack('${track.uri}')">▶ Play</button>
@@ -1040,7 +1363,16 @@
         }
 
         // Vote on a track
-        async function vote(trackId, voteValue) {
+        async function vote(trackId, voteValue, event) {
+            // Prevent any default behavior or scroll jumps
+            if (event) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+            
+            // Lock scroll position
+            lockScroll();
+            
             try {
                 const response = await fetch('/api/vote', {
                     method: 'POST',
@@ -1054,11 +1386,66 @@
                 });
                 
                 const data = await response.json();
-                if (!data.success) {
+                if (data.success) {
+                    // Update local track data
+                    const track = originalTracks.find(t => t.id === trackId);
+                    if (track) {
+                        track.user_vote = data.user_vote;
+                        track.votes = data.votes;
+                    }
+                    
+                    // Update button states
+                    updateVoteButtons(trackId, data.user_vote);
+                    
+                    // Update vote count display (including playbar)
+                    updateVoteCount(trackId, data.votes);
+                } else {
                     console.error('Vote failed');
                 }
             } catch (error) {
                 console.error('Vote error:', error);
+            } finally {
+                // Unlock scroll after a short delay
+                setTimeout(() => {
+                    unlockScroll();
+                }, 100);
+            }
+        }
+
+        // Update vote button states
+        function updateVoteButtons(trackId, userVote) {
+            // Update track card buttons
+            const upvoteBtn = document.querySelector(`[data-track-vote="${trackId}-up"]`);
+            const downvoteBtn = document.querySelector(`[data-track-vote="${trackId}-down"]`);
+            
+            if (upvoteBtn && downvoteBtn) {
+                // Remove voted class from both
+                upvoteBtn.classList.remove('voted');
+                downvoteBtn.classList.remove('voted');
+                
+                // Add voted class based on user vote
+                if (userVote === 1) {
+                    upvoteBtn.classList.add('voted');
+                } else if (userVote === -1) {
+                    downvoteBtn.classList.add('voted');
+                }
+            }
+            
+            // Update now playing bar buttons if it's the current track
+            if (currentTrackId === trackId) {
+                const nowPlayingUp = document.getElementById('nowPlayingUpvote');
+                const nowPlayingDown = document.getElementById('nowPlayingDownvote');
+                
+                if (nowPlayingUp && nowPlayingDown) {
+                    nowPlayingUp.classList.remove('voted');
+                    nowPlayingDown.classList.remove('voted');
+                    
+                    if (userVote === 1) {
+                        nowPlayingUp.classList.add('voted');
+                    } else if (userVote === -1) {
+                        nowPlayingDown.classList.add('voted');
+                    }
+                }
             }
         }
 
@@ -1102,19 +1489,8 @@
             if (track) {
                 track.votes = votes;
                 
-                // Debounced re-sort: only re-sort if currently sorting by votes AND after 3 seconds of no updates
-                if (currentSort === 'votes-desc' || currentSort === 'votes-asc') {
-                    // Clear existing timeout
-                    if (resortTimeout) {
-                        clearTimeout(resortTimeout);
-                    }
-                    
-                    // Set new timeout - will only resort if no more votes come in for 3 seconds
-                    resortTimeout = setTimeout(() => {
-                        console.log('🔄 Re-sorting after vote updates settled');
-                        sortTracks(currentSort);
-                    }, 3000); // Wait 3 seconds after last vote before re-sorting
-                }
+                // DON'T auto-resort - it causes scroll jumps
+                // User can click "🔄 Refresh Ranking" button if they want to see updated order
             }
         }
 
@@ -1177,6 +1553,13 @@
                 return;
             }
 
+            // Find track info
+            const track = allTracks.find(t => t.id === trackId);
+            if (!track) {
+                alert('Track not found');
+                return;
+            }
+
             try {
                 const response = await handleFetchWithAuth('/api/delete-track', {
                     method: 'POST',
@@ -1185,7 +1568,12 @@
                     },
                     body: JSON.stringify({
                         playlist_id: currentPlaylistId,
-                        track_uri: trackUri
+                        track_uri: trackUri,
+                        track_id: trackId,
+                        track_name: track.name,
+                        artists: track.artists,
+                        album: track.album,
+                        image_url: track.image_url
                     })
                 });
 
@@ -1292,9 +1680,40 @@
             document.getElementById('nowPlayingArtist').textContent = track.artists.map(a => a.name).join(', ');
             document.getElementById('nowPlayingVotes').textContent = votes;
             
-            // Set up vote buttons
-            document.getElementById('nowPlayingUpvote').onclick = () => vote(track.id, 1);
-            document.getElementById('nowPlayingDownvote').onclick = () => vote(track.id, -1);
+            // Find track in originalTracks to get user_vote
+            const trackData = originalTracks.find(t => t.id === track.id);
+            const userVote = trackData ? trackData.user_vote : 0;
+            
+            // Set up vote buttons with correct styling and data attributes
+            const upvoteBtn = document.getElementById('nowPlayingUpvote');
+            const downvoteBtn = document.getElementById('nowPlayingDownvote');
+            
+            // Set data attributes so updateVoteButtons can find them
+            upvoteBtn.setAttribute('data-track-vote', `${track.id}-up`);
+            downvoteBtn.setAttribute('data-track-vote', `${track.id}-down`);
+            
+            upvoteBtn.onclick = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                vote(track.id, 1, e);
+                return false; // Extra safeguard
+            };
+            downvoteBtn.onclick = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                vote(track.id, -1, e);
+                return false; // Extra safeguard
+            };
+            
+            // Update button classes based on user vote
+            upvoteBtn.className = 'vote-btn upvote-btn';
+            downvoteBtn.className = 'vote-btn downvote-btn';
+            
+            if (userVote === 1) {
+                upvoteBtn.classList.add('voted');
+            } else if (userVote === -1) {
+                downvoteBtn.classList.add('voted');
+            }
             
             // Show now playing, hide status
             nowPlayingBar.classList.remove('hidden');
@@ -1323,6 +1742,7 @@
 
         // Playback controls
         async function togglePlayPause() {
+            lockScroll();
             try {
                 const response = await handleFetchWithAuth('/api/playback/play-pause', {
                     method: 'POST'
@@ -1340,10 +1760,13 @@
                 
             } catch (error) {
                 console.error('Play/Pause error:', error);
+            } finally {
+                setTimeout(() => unlockScroll(), 100);
             }
         }
 
         async function nextTrack() {
+            lockScroll();
             try {
                 const response = await handleFetchWithAuth('/api/playback/next', {
                     method: 'POST'
@@ -1361,10 +1784,13 @@
                 
             } catch (error) {
                 console.error('Next track error:', error);
+            } finally {
+                setTimeout(() => unlockScroll(), 100);
             }
         }
 
         async function previousTrack() {
+            lockScroll();
             try {
                 const response = await handleFetchWithAuth('/api/playback/previous', {
                     method: 'POST'
@@ -1382,8 +1808,28 @@
                 
             } catch (error) {
                 console.error('Previous track error:', error);
+            } finally {
+                setTimeout(() => unlockScroll(), 100);
             }
         }
+
+        // Infinite scroll listener
+        window.addEventListener('scroll', () => {
+            // Don't load more tracks when showing deleted tracks
+            if (showingDeleted) {
+                return;
+            }
+            
+            // Check if user scrolled near bottom
+            const scrollPosition = window.innerHeight + window.scrollY;
+            const pageHeight = document.documentElement.scrollHeight;
+            
+            // Load more when within 500px of bottom
+            if (scrollPosition >= pageHeight - 500 && !isLoadingMore && displayOffset < allTracks.length) {
+                console.log('🔄 Loading more tracks...');
+                loadMoreTracks();
+            }
+        });
     </script>
 </body>
 </html>

@@ -17,11 +17,11 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/gorilla/sessions"
 	"github.com/gorilla/websocket"
+	"github.com/joho/godotenv"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/zmb3/spotify/v2"
 	spotifyauth "github.com/zmb3/spotify/v2/auth"
 	"golang.org/x/oauth2"
-	"github.com/joho/godotenv"
 )
 
 var (
@@ -60,6 +60,7 @@ type Track struct {
 	ImageURL string `json:"image_url"`
 	URI      string `json:"uri"`
 	Votes    int    `json:"votes"`
+	UserVote int    `json:"user_vote"` // -1, 0, or 1
 }
 
 type VoteUpdate struct {
@@ -124,6 +125,53 @@ func NewApp() *App {
 	`)
 	if err != nil {
 		log.Fatal("Failed to create sessions table:", err)
+	}
+
+	// Create deleted_tracks table to track removed tracks
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS deleted_tracks (
+			track_id TEXT PRIMARY KEY,
+			playlist_id TEXT NOT NULL,
+			track_name TEXT NOT NULL,
+			track_artists TEXT NOT NULL,
+			track_album TEXT NOT NULL,
+			track_image_url TEXT,
+			track_uri TEXT NOT NULL,
+			votes_at_deletion INTEGER NOT NULL DEFAULT 0,
+			deleted_by TEXT NOT NULL,
+			deleted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		)
+	`)
+	if err != nil {
+		log.Fatal("Failed to create deleted_tracks table:", err)
+	}
+
+	// Create user_votes table to track individual user votes
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS user_votes (
+			user_id TEXT NOT NULL,
+			track_id TEXT NOT NULL,
+			vote INTEGER NOT NULL DEFAULT 0,
+			voted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (user_id, track_id)
+		)
+	`)
+	if err != nil {
+		log.Fatal("Failed to create user_votes table:", err)
+	}
+
+	// Create user_votes table to track individual user votes
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS user_votes (
+			user_id TEXT NOT NULL,
+			track_id TEXT NOT NULL,
+			vote INTEGER NOT NULL DEFAULT 0,
+			voted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (user_id, track_id)
+		)
+	`)
+	if err != nil {
+		log.Fatal("Failed to create user_votes table:", err)
 	}
 
 	app := &App{
@@ -535,6 +583,18 @@ func (app *App) handleGetPlaylistTracks(w http.ResponseWriter, r *http.Request) 
 			votes := app.votes[string(track.ID)]
 			app.mu.RUnlock()
 
+			// Get user's vote for this track
+			var userVote int
+			err := app.db.QueryRow(`
+				SELECT vote FROM user_votes 
+				WHERE user_id = ? AND track_id = ?
+			`, userSession.UserID, string(track.ID)).Scan(&userVote)
+			
+			if err != nil && err != sql.ErrNoRows {
+				log.Printf("Error getting user vote: %v", err)
+			}
+			// If no row found, userVote remains 0 (not voted)
+
 			tracks = append(tracks, Track{
 				ID:       string(track.ID),
 				Name:     track.Name,
@@ -543,6 +603,7 @@ func (app *App) handleGetPlaylistTracks(w http.ResponseWriter, r *http.Request) 
 				ImageURL: imageURL,
 				URI:      string(track.URI),
 				Votes:    votes,
+				UserVote: userVote,
 			})
 		}
 
@@ -562,7 +623,13 @@ func (app *App) handleGetPlaylistTracks(w http.ResponseWriter, r *http.Request) 
 }
 
 func (app *App) handleVote(w http.ResponseWriter, r *http.Request) {
-	// Don't require authentication for voting - anyone can vote!
+	// Require authentication for voting
+	userSession, err := app.getSession(r)
+	if err != nil {
+		http.Error(w, "Not authenticated", http.StatusUnauthorized)
+		return
+	}
+
 	var req struct {
 		TrackID string `json:"track_id"`
 		Vote    int    `json:"vote"` // 1 for upvote, -1 for downvote
@@ -578,27 +645,73 @@ func (app *App) handleVote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get user's current vote for this track
+	var currentVote int
+	err = app.db.QueryRow(`
+		SELECT vote FROM user_votes 
+		WHERE user_id = ? AND track_id = ?
+	`, userSession.UserID, req.TrackID).Scan(&currentVote)
+	
+	if err != nil && err != sql.ErrNoRows {
+		log.Printf("Error getting user vote: %v", err)
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		return
+	}
+
+	var newVote int
+	var voteDelta int
+
+	// Toggle logic (Reddit style)
+	if currentVote == req.Vote {
+		// Clicking same button again = remove vote
+		newVote = 0
+		voteDelta = -currentVote // Remove the current vote
+	} else {
+		// Clicking different button or voting for first time
+		newVote = req.Vote
+		voteDelta = req.Vote - currentVote // Calculate the change
+	}
+
+	// Update user's vote in database
+	_, err = app.db.Exec(`
+		INSERT INTO user_votes (user_id, track_id, vote, voted_at)
+		VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+		ON CONFLICT(user_id, track_id) 
+		DO UPDATE SET vote = ?, voted_at = CURRENT_TIMESTAMP
+	`, userSession.UserID, req.TrackID, newVote, newVote)
+	
+	if err != nil {
+		log.Printf("Failed to save user vote: %v", err)
+		http.Error(w, "Failed to save vote", http.StatusInternalServerError)
+		return
+	}
+
+	// Update total votes
 	app.mu.Lock()
-	app.votes[req.TrackID] += req.Vote
-	newVotes := app.votes[req.TrackID]
+	app.votes[req.TrackID] += voteDelta
+	totalVotes := app.votes[req.TrackID]
 	app.mu.Unlock()
 
-	// Immediately sync to database
-	if err := app.syncVotesToDB(req.TrackID, newVotes); err != nil {
+	// Sync to database
+	if err := app.syncVotesToDB(req.TrackID, totalVotes); err != nil {
 		log.Printf("⚠️  Failed to sync vote to database: %v", err)
 	}
 
 	// Broadcast vote update to all connected clients
 	update := VoteUpdate{
 		TrackID: req.TrackID,
-		Votes:   newVotes,
+		Votes:   totalVotes,
 	}
 	broadcast <- update
 
+	log.Printf("👤 User %s voted %d on track %s (was: %d, now: %d, total: %d)", 
+		userSession.UserID, req.Vote, req.TrackID, currentVote, newVote, totalVotes)
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"votes":   newVotes,
+		"success":   true,
+		"votes":     totalVotes,
+		"user_vote": newVote,
 	})
 }
 
@@ -745,6 +858,11 @@ func (app *App) handleDeleteTrack(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		PlaylistID string `json:"playlist_id"`
 		TrackURI   string `json:"track_uri"`
+		TrackID    string `json:"track_id"`
+		TrackName  string `json:"track_name"`
+		Artists    string `json:"artists"`
+		Album      string `json:"album"`
+		ImageURL   string `json:"image_url"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -754,8 +872,29 @@ func (app *App) handleDeleteTrack(w http.ResponseWriter, r *http.Request) {
 
 	ctx := context.Background()
 
+	// Get current votes for this track
+	app.mu.RLock()
+	currentVotes := app.votes[req.TrackID]
+	app.mu.RUnlock()
+
+	// Save track info to deleted_tracks table BEFORE deleting
+	_, err = app.db.Exec(`
+		INSERT INTO deleted_tracks 
+		(track_id, playlist_id, track_name, track_artists, track_album, track_image_url, track_uri, votes_at_deletion, deleted_by)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(track_id) DO UPDATE SET
+			votes_at_deletion = ?,
+			deleted_at = CURRENT_TIMESTAMP
+	`, req.TrackID, req.PlaylistID, req.TrackName, req.Artists, req.Album, req.ImageURL, 
+	   req.TrackURI, currentVotes, userSession.UserID, currentVotes)
+	
+	if err != nil {
+		log.Printf("⚠️  Failed to save deleted track info: %v", err)
+	} else {
+		log.Printf("💾 Saved deleted track info: %s - %s", req.TrackName, req.Artists)
+	}
+
 	// Use the Spotify Web API directly to remove tracks
-	// The library's method has type issues, so we use HTTP client directly
 	apiURL := fmt.Sprintf("https://api.spotify.com/v1/playlists/%s/tracks", req.PlaylistID)
 	
 	requestBody := map[string]interface{}{
@@ -778,7 +917,6 @@ func (app *App) handleDeleteTrack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Add authorization header
 	httpReq.Header.Set("Authorization", "Bearer "+userSession.Token.AccessToken)
 	httpReq.Header.Set("Content-Type", "application/json")
 
@@ -803,6 +941,62 @@ func (app *App) handleDeleteTrack(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]bool{"success": true})
+}
+
+func (app *App) handleGetDeletedTracks(w http.ResponseWriter, r *http.Request) {
+	userSession, err := app.getSession(r)
+	if err != nil {
+		http.Error(w, "Not authenticated", http.StatusUnauthorized)
+		return
+	}
+
+	vars := mux.Vars(r)
+	playlistID := vars["playlistId"]
+
+	rows, err := app.db.Query(`
+		SELECT track_id, track_name, track_artists, track_album, track_image_url, 
+		       track_uri, votes_at_deletion, deleted_by, deleted_at
+		FROM deleted_tracks 
+		WHERE playlist_id = ?
+		ORDER BY deleted_at DESC
+	`, playlistID)
+	
+	if err != nil {
+		log.Printf("Failed to get deleted tracks: %v", err)
+		http.Error(w, "Failed to get deleted tracks", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	type DeletedTrack struct {
+		ID        string `json:"id"`
+		Name      string `json:"name"`
+		Artists   string `json:"artists"`
+		Album     string `json:"album"`
+		ImageURL  string `json:"image_url"`
+		URI       string `json:"uri"`
+		Votes     int    `json:"votes"`
+		DeletedBy string `json:"deleted_by"`
+		DeletedAt string `json:"deleted_at"`
+	}
+
+	deletedTracks := []DeletedTrack{}
+	
+	for rows.Next() {
+		var track DeletedTrack
+		if err := rows.Scan(&track.ID, &track.Name, &track.Artists, &track.Album, 
+			&track.ImageURL, &track.URI, &track.Votes, &track.DeletedBy, &track.DeletedAt); err != nil {
+			log.Printf("Error scanning deleted track: %v", err)
+			continue
+		}
+		deletedTracks = append(deletedTracks, track)
+	}
+
+	log.Printf("📜 User %s fetched %d deleted tracks for playlist %s", 
+		userSession.UserID, len(deletedTracks), playlistID)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(deletedTracks)
 }
 
 func (app *App) handleGetNowPlaying(w http.ResponseWriter, r *http.Request) {
@@ -1008,7 +1202,6 @@ func main() {
 		log.Fatal("SPOTIFY_ID and SPOTIFY_SECRET environment variables must be set")
 	}
 
-
 	// Initialize redirect URL and auth AFTER env vars are set
 	redirectURL = getRedirectURL()
 	auth = spotifyauth.New(
@@ -1041,6 +1234,7 @@ func main() {
 	r.HandleFunc("/api/play", app.handlePlayTrack).Methods("POST")
 	r.HandleFunc("/api/devices", app.handleGetDevices).Methods("GET")
 	r.HandleFunc("/api/delete-track", app.handleDeleteTrack).Methods("POST")
+	r.HandleFunc("/api/deleted-tracks/{playlistId}", app.handleGetDeletedTracks).Methods("GET")
 	r.HandleFunc("/api/now-playing", app.handleGetNowPlaying).Methods("GET")
 	r.HandleFunc("/api/playback/play-pause", app.handlePlayPause).Methods("POST")
 	r.HandleFunc("/api/playback/next", app.handleNext).Methods("POST")
